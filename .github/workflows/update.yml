@@ -1,0 +1,43 @@
+name: Update dashboard
+
+on:
+  schedule:
+    # Times are UTC, Monday-Friday. US market hours are about 13:30-21:00 UTC.
+    - cron: "0 12 * * 1-5"      # pre-market (8pm Malaysia)
+    - cron: "15 14-20 * * 1-5"  # hourly during the session
+    - cron: "30 21 * * 1-5"     # after the close (5:30am Malaysia)
+  workflow_dispatch: {}          # "Run workflow" button for a manual refresh
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python update_data.py
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
