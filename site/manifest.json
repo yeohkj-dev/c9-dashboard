@@ -1,6 +1,6 @@
 {
-  "name": "C9 Market Dashboard",
-  "short_name": "C9 Market",
+  "name": "Market Dashboard",
+  "short_name": "Market",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#000000",
