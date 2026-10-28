@@ -5,6 +5,10 @@ over the S&P 1500 in tickers.csv, and a theme tracker built from ETFs.
 """
 import json
 import math
+import os
+import time
+import traceback
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,6 +17,9 @@ import yfinance as yf
 
 ROOT = Path(__file__).parent
 OUT = ROOT / "site" / "data.json"
+
+# Last published data, used when a section cannot be fetched this run
+PREVIOUS_URL = os.environ.get("PREVIOUS_DATA_URL", "https://yeohkj-dev.github.io/c9-dashboard/data.json")
 
 INDEXES = ["SPY", "QQQ", "IWM"]
 
@@ -70,10 +77,19 @@ def pct(a, b):
     return num((a / b - 1) * 100)
 
 
-def download(tickers, period):
-    df = yf.download(tickers, period=period, interval="1d", auto_adjust=True,
-                     group_by="column", threads=True, progress=False)
-    return df
+def download(tickers, period, min_ok=0.9, attempts=4):
+    """yf.download with retries; Yahoo sometimes throttles and returns empty columns."""
+    for i in range(attempts):
+        df = yf.download(tickers, period=period, interval="1d", auto_adjust=True,
+                         group_by="column", threads=True, progress=False)
+        ok = 0
+        if not df.empty and "Close" in df:
+            ok = int((df["Close"].notna().sum() >= 2).sum())
+        if ok >= len(tickers) * min_ok:
+            return df
+        print(f"download attempt {i + 1}: {ok}/{len(tickers)} tickers, retrying")
+        time.sleep(20 * (i + 1))
+    raise RuntimeError(f"download failed for {len(tickers)} tickers ({period})")
 
 
 def index_cards():
@@ -197,16 +213,40 @@ def breadth():
     }
 
 
+def previous_data():
+    try:
+        with urllib.request.urlopen(PREVIOUS_URL + "?t=" + str(int(time.time())), timeout=30) as r:
+            return json.load(r)
+    except Exception as e:
+        print(f"no previous data ({e})")
+        return {}
+
+
 def main():
-    out = {
-        "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "indexes": index_cards(),
-        "breadth": breadth(),
-        "themes": theme_tracker(),
-    }
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    out = {"updated": now, "stale": []}
+    prev = None
+    sections = (("indexes", index_cards), ("breadth", breadth), ("themes", theme_tracker))
+    for key, fn in sections:
+        try:
+            out[key] = fn()
+        except Exception:
+            traceback.print_exc()
+            if prev is None:
+                prev = previous_data()
+            if key not in prev:
+                raise
+            # Keep the last good copy so one bad fetch does not take the page down
+            out[key] = prev[key]
+            out["stale"].append(key)
+            print(f"{key}: fetch failed, reusing previous data")
+
+    if len(out["stale"]) == len(sections):
+        raise SystemExit("every section failed; keeping the published page as it is")
+
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"wrote {OUT} ({out['breadth']['counted']} stocks, {len(out['themes'])} themes)")
+    print(f"wrote {OUT} ({out['breadth']['counted']} stocks, {len(out['themes'])} themes, stale={out['stale']})")
 
 
 if __name__ == "__main__":

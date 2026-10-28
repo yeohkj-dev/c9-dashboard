@@ -214,7 +214,10 @@ async function load(manual){
     const res = await fetch("data.json?t=" + Date.now(), {cache: "no-store"});
     if(!res.ok) throw new Error(res.status);
     DATA = await res.json();
-    $("updated").textContent = "更新于 " + myt(new Date(DATA.updated)) + "（MYT）";
+    const STALE = {indexes: "指数", breadth: "市场宽度", themes: "主题"};
+    const stale = (DATA.stale || []).map(k => STALE[k] || k);
+    $("updated").textContent = "更新于 " + myt(new Date(DATA.updated)) + "（MYT）" +
+      (stale.length ? "，" + stale.join("、") + "沿用上次数据" : "");
     showNext(manual ? (prev === DATA.updated ? "已是最新数据，要等下次自动更新" : "已载入新数据") : "");
     renderIndexes(DATA.indexes);
     renderBreadth(DATA.breadth);
