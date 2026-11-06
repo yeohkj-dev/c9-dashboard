@@ -43,7 +43,7 @@ GitHub Actions (update.yml, 定时)
 | `site/index.html` | 单页网页（纯 HTML/CSS/JS，无框架），深色，手机优先 |
 | `site/manifest.json`、`site/icon-*.png` | 「添加到主屏幕」用 |
 | `.github/workflows/update.yml` | 定时更新 + 部署 |
-| `.github/workflows/keepalive.yml` | 每月 1 号空 commit，防止 GitHub 因 60 天无活动停用定时任务 |
+| `.github/workflows/keepalive.yml` | 每月 1 号空 commit，防止 GitHub 因 60 天无活动停用定时任务。改动这个文件并 push 也会跑一次（方便测试，用户手机上找不到 Run workflow 按钮）。它用 GITHUB_TOKEN 推送，不会再触发 update.yml |
 | `README.md` | 给用户看的简短说明 |
 
 ## 4. 更新时间（update.yml，UTC，周一至五）
@@ -111,7 +111,7 @@ python -m http.server 8765 --directory site
 
 - 2026-10-27：建立。指数、宽度、Stage、主题、Stage 2 新高股；GitHub Actions + Pages。
 - 2026-10-28：标题改为 MARKET DASHBOARD；刷新按钮提示 + 下次更新时间；下载重试与沿用上次数据；push 触发部署。
-- 2026-11-06：加 keepalive.yml；加这份交接说明。
+- 2026-11-06：加 keepalive.yml；加这份交接说明。keepalive 改为「自身文件改动时也运行」，用来测试。
 
 ## 10. 可能的后续（用户尚未要求）
 
