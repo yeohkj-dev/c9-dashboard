@@ -58,11 +58,11 @@ THEMES = {
     "Bitcoin": "IBIT",
 }
 
-# Weinstein stage rules on the 150-day (30-week) average.
-# The MA counts as rising/falling when it moved more than FLAT_PCT over SLOPE_DAYS.
-MA_LEN = 150
-SLOPE_DAYS = 20
+# Stage rules. Stage 2 follows the C9 course checklist (lesson 2); see stage_of().
+# The 150-day MA counts as falling when it dropped more than FLAT_PCT over SLOPE_DAYS.
+SLOPE_DAYS = 20      # also "above MA200 for at least a month"
 FLAT_PCT = 1.0
+MAX_SHADOW_PCT = 3.0  # Stage 2 new-high list: close within this % of the day's high
 
 
 def num(x, nd=2):
@@ -136,25 +136,42 @@ def theme_tracker():
     return rows
 
 
-def stage_of(close, ma):
-    """Classify one stock into Weinstein stage 1-4, or None without enough history."""
-    ma = ma.dropna()
-    if len(ma) <= SLOPE_DAYS:
+def stage_of(close):
+    """Classify one stock into Weinstein stage 1-4, or None without enough history.
+
+    Stage 2 (C9 course): price above MA50, MA150 and MA200; MA50 > MA150 > MA200
+    (higher highs / higher lows); MA200 rising; above MA200 for the last month.
+    Stage 4: price below a falling MA150.
+    Anything else is judged by the trend it came from: MA150 above MA200 means
+    it had an uptrend and lost the Stage 2 conditions (Stage 3); otherwise it is
+    basing or turning up from a decline (Stage 1).
+    """
+    if len(close) < 200 + SLOPE_DAYS:
         return None
-    price, now, then = close.iloc[-1], ma.iloc[-1], ma.iloc[-1 - SLOPE_DAYS]
-    slope = (now / then - 1) * 100
-    above = price > now
-    if above and slope > FLAT_PCT:
+    ma50 = close.rolling(50).mean()
+    ma150 = close.rolling(150).mean()
+    ma200 = close.rolling(200).mean()
+    p = close.iloc[-1]
+    m50, m150, m200 = ma50.iloc[-1], ma150.iloc[-1], ma200.iloc[-1]
+
+    if (p > m50 and p > m150 and p > m200
+            and m50 > m150 > m200
+            and m200 > ma200.iloc[-1 - SLOPE_DAYS]
+            and (close.iloc[-SLOPE_DAYS:] > ma200.iloc[-SLOPE_DAYS:]).all()):
         return 2
-    if not above and slope < -FLAT_PCT:
+
+    slope150 = (m150 / ma150.iloc[-1 - SLOPE_DAYS] - 1) * 100
+    if p < m150 and slope150 < -FLAT_PCT:
         return 4
-    if above:
-        return 1   # price above a flat/falling MA: basing or early turn
-    return 3       # price below a flat/rising MA: topping
+
+    return 3 if m150 > m200 else 1
 
 
 def breadth():
-    universe = pd.read_csv(ROOT / "tickers.csv")["ticker"].tolist()
+    listing = pd.read_csv(ROOT / "tickers.csv")
+    universe = listing["ticker"].tolist()
+    # US exchange per ticker, so chart links don't resolve to a foreign stock with the same code
+    exchange = dict(zip(listing["ticker"], listing.get("exchange", pd.Series(dtype=str)).fillna("")))
     data = download(universe, "14mo")
     close, high, low = data["Close"], data["High"], data["Low"]
 
@@ -190,12 +207,15 @@ def breadth():
         if not pd.isna(ma200.iloc[-1]) and c.iloc[-1] > ma200.iloc[-1]:
             above200 += 1
 
-        st = stage_of(c, c.rolling(MA_LEN).mean())
+        st = stage_of(c)
         if st:
             stages[st] += 1
-            # Stage 2 names closing at a 52-week high: candidate leaders
-            if st == 2 and h.iloc[-1] >= window_h.max():
-                stage2.append({"ticker": t, "price": num(c.iloc[-1]),
+            # Stage 2 names closing at a 52-week high: candidate leaders.
+            # Uses closes, not the intraday high, so a spike that reversed is left out,
+            # and skips long upper shadows (selling into the high).
+            if (st == 2 and c.iloc[-1] > c.iloc[-253:-1].max()
+                    and c.iloc[-1] >= h.iloc[-1] * (1 - MAX_SHADOW_PCT / 100)):
+                stage2.append({"ticker": t, "exchange": exchange.get(t, ""), "price": num(c.iloc[-1]),
                                "changePct": pct(c.iloc[-1], c.iloc[-2])})
 
     staged = sum(stages.values()) or 1

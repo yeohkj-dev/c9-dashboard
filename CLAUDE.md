@@ -38,7 +38,7 @@ GitHub Actions (update.yml, 定时)
 | 文件 | 用途 |
 |---|---|
 | `update_data.py` | 抓数据并计算。`THEMES` = 主题→ETF 对照；`INDEXES`；Stage 规则常量 `MA_LEN / SLOPE_DAYS / FLAT_PCT` |
-| `tickers.csv` | 市场宽度股票池：S&P 500 + 400 + 600（约 1,500 只，2026-10-27 从 Wikipedia 抓取）。成分股会变，偶尔要重抓 |
+| `tickers.csv` | 市场宽度股票池：S&P 500 + 400 + 600（约 1,500 只，2026-10-27 从 Wikipedia 抓取）。成分股会变，偶尔要重抓。`exchange` 栏（NYSE / NASDAQ / AMEX / CBOE，2026-11-18 从 nasdaqtrader.com 的 nasdaqlisted.txt + otherlisted.txt 补上）用于 TradingView 链接；重抓成分股时也要补这栏 |
 | `requirements.txt` | `yfinance>=1.7`（旧版会被 Yahoo 拦截，报 rate limited）、pandas |
 | `site/index.html` | 单页网页（纯 HTML/CSS/JS，无框架），深色，手机优先 |
 | `site/manifest.json`、`site/icon-*.png` | 「添加到主屏幕」用 |
@@ -60,13 +60,14 @@ GitHub 的定时任务常延迟 5–40 分钟，属正常。`site/index.html` �
 
 ## 5. 关键规则
 
-**Stage（Weinstein）**：用 150 天均线（≈30 周线），斜率 = 现在 vs 20 天前，变化超过 ±1% 才算上升/下降。
-- 股价 > 均线 且 均线上升 → Stage 2
-- 股价 < 均线 且 均线下降 → Stage 4
-- 股价 > 均线，均线走平或下降 → Stage 1
-- 股价 < 均线，均线走平或上升 → Stage 3
+**Stage**（`stage_of()`，2026-11-18 改为 C9 课程第二堂的 Stage 2 标准；旧规则太宽松，38% 都算 Stage 2，用户反映不准）：
+- Stage 2：股价 > MA50、MA150、MA200；MA50 > MA150 > MA200；MA200 比 20 天前高；最近 20 天都在 MA200 之上
+- Stage 4：股价 < MA150，且 MA150 比 20 天前跌超 1%
+- 其余：MA150 > MA200（之前是升势）→ Stage 3；否则 → Stage 1（筑底 / 刚回升）
 
-**新高/新低**：当天 High ≥ 过去 252 天最高 / 当天 Low ≤ 过去 252 天最低。
+**新高/新低（Market Breadth 计数）**：当天 High ≥ 过去 252 天最高 / 当天 Low ≤ 过去 252 天最低（标准盘中定义）。
+
+**Stage 2 新高股名单**：Stage 2 + **收盘价**高于过去 252 天所有收盘价 + 收盘离当日高位 ≤ `MAX_SHADOW_PCT`（3%）。原本用盘中高位，冲高回落的股票（例如 DIS 收盘跌 1.5%）也会入选，用户反映不准；2026-11-18 已改，并与 Finviz 逐只核对过。
 
 **容错**：`download()` 失败会重试最多 4 次；某一区块仍失败时，从线上 `data.json` 沿用上次数据，并写入 `stale` 字段，页面会显示「××沿用上次数据」。三个区块全失败才让这次运行失败（线上保持旧版）。
 
@@ -105,6 +106,7 @@ python -m http.server 8765 --directory site
 - 原本 push 不会触发部署，改了网页要等下一次定时任务才上线 → 已加 `push` 触发。
 - 浏览器 / Pages 有缓存（最多约 10 分钟）；手机看到旧画面时下拉重新载入。
 - 用户的 3 张参考截图（`*.jpg`）在 .gitignore，不要上传。
+- TradingView 链接必须带交易所前缀：只写 `ENR` 会打开德国的 Siemens Energy（XETR:ENR），用户因此以为涨幅数据错了。现在用 `NYSE:ENR`；没有交易所的股票改链到 Finviz（只有美股）。数据本身经 StockAnalysis / Finviz 核对无误。
 - GitHub 的 Node 20 弃用警告：actions 已升到 checkout@v5、setup-python@v6、upload-pages-artifact@v4。
 
 ## 9. 修改记录
@@ -112,6 +114,7 @@ python -m http.server 8765 --directory site
 - 2026-10-27：建立。指数、宽度、Stage、主题、Stage 2 新高股；GitHub Actions + Pages。
 - 2026-10-28：标题改为 MARKET DASHBOARD；刷新按钮提示 + 下次更新时间；下载重试与沿用上次数据；push 触发部署。
 - 2026-11-06：加 keepalive.yml；加这份交接说明。keepalive 改为「自身文件改动时也运行」，用来测试。
+- 2026-11-18：Stage 规则改用 C9 Stage 2 标准（Stage 2 由 38% 降到约 20%）；Stage 2 新高股改为收盘新高 + 上影 ≤3%；TradingView 链接加交易所前缀。
 
 ## 10. 可能的后续（用户尚未要求）
 
